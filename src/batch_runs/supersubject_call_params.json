@@ -1,0 +1,71 @@
+{
+  "pipeline_module": "src.pipelines.test_iga_from_eeg_latent_test_retest_gedai_super_subject",
+
+  "super_subjects": {
+    "selected": [1, 2, 3, 4, 5],
+    "subjects_per_super_subject": 12,
+    "subject_start_offset": 1,
+    "total_subjects": 60,
+    "_comment_groups": "Opcional: si se define 'groups', toma precedencia sobre la auto-resolucion. Las claves pueden ser enteros o strings; los valores son listas de indices de sujetos. Ejemplo: \"groups\": {\"1\": [1,2,...,20], \"2\": [21,...,40], \"3\": [41,...,60]}"
+  },
+
+  "sessions": ["session1"],
+
+  "tasks": ["eyesclosed","mathematic"],
+
+  "time_window": {
+    "t_start": 100.0,
+    "t_end": 200.0,
+    "_comment": "Ventana temporal aplicada POR SUJETO antes de concatenar. Cada super-sujeto queda con N_subjects * (t_end - t_start) segundos."
+  },
+
+  "methods": [
+    {
+      "label": "hankel+cdhsa+top_4",
+      "stage1_embedding": "hankel",
+      "stage1_params": {"depth": 10},
+      "stage2_dynamics": "cdhsa_specific_modes",
+      "stage2_params": {
+        "mode_map_path": "params/mode_map_4_modes_session1_eyesclosed_mathematic_100.0s-200.0s.json"
+      },
+      "stage3_selection": "top_n",
+      "stage3_params": {}
+    }
+  ],
+
+  "shared_params": {
+    "latent_dim": 4,
+    "l_freq": 1.0,
+    "h_freq": 40.0,
+    "ica_method": "picard",
+    "analysis_dim": null,
+    "column": null,
+    "save_potential": true,
+    "no_save_potential": false,
+    "verbose": true,
+    "ignore_c35439ache": false,
+    "hankel_embedding_depth": null,
+    "diffusion_sigma": null,
+    "diffusion_k": 100,
+    "diffusion_time": 0.0,
+    "diffusion_alpha": 0.5,
+    "fc_metric": "variance_sum",
+    "n_bins": 10,
+    "workers": null,
+    "search_strategy": "exhaustive",
+    "km_bins": 40
+  },
+
+  "execution": {
+    "delay": 2.0,
+    "max_workers": 1,
+    "run_postprocess": true,
+    "log_level": "INFO"
+  },
+
+  "postprocess": {
+    "potential_img": "potential_2d.png",
+    "nonconservative_img": "potential_2d_nonconservative_force.png",
+    "composite_prefix": "methods_comparison"
+  }
+}

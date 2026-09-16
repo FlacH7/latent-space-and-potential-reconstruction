@@ -1,0 +1,162 @@
+{
+  "pipeline_module": "src.pipelines.test_iga_from_eeg_latent_test_retest_gedai_super_subject",
+
+  "super_subjects": {
+    "selected": [1, 2, 3],
+    "subjects_per_super_subject": 20,
+    "subject_start_offset": 1,
+    "total_subjects": 60,
+    "_comment_groups": "Opcional: si se define 'groups', toma precedencia sobre la auto-resolucion. Las claves pueden ser enteros o strings; los valores son listas de indices de sujetos. Ejemplo: \"groups\": {\"1\": [1,2,...,20], \"2\": [21,...,40], \"3\": [41,...,60]}"
+  },
+
+  "sessions": ["session1", "session2", "session3"],
+
+  "tasks": ["eyesclosed", "eyesopen", "mathematic", "memory", "music"],
+
+  "time_window": {
+    "t_start": 0.0,
+    "t_end": 300.0,
+    "_comment": "Ventana temporal aplicada POR SUJETO antes de concatenar. Cada super-sujeto queda con N_subjects * (t_end - t_start) segundos."
+  },
+
+  "methods": [
+    {
+      "label": "hankel+pca_ica+markov_fastest",
+      "stage1_embedding": "hankel",
+      "stage1_params": {},
+      "stage2_dynamics": "pca_ica",
+      "stage2_params": {
+        "ica_method": "picard",
+        "n_components": 20
+      },
+      "stage3_selection": "markov_fastest",
+      "stage3_params": {
+        "n_bins": 10,
+        "search_strategy": "exhaustive"
+      }
+    },
+    {
+      "label": "hankel+pca_ica+markov_slowest",
+      "stage1_embedding": "hankel",
+      "stage1_params": {},
+      "stage2_dynamics": "pca_ica",
+      "stage2_params": {
+        "ica_method": "picard",
+        "n_components": 20
+      },
+      "stage3_selection": "markov_slowest",
+      "stage3_params": {
+        "n_bins": 10,
+        "search_strategy": "exhaustive"
+      }
+    },
+    {
+      "label": "hankel+dmd+top_n",
+      "stage1_embedding": "hankel",
+      "stage1_params": {},
+      "stage2_dynamics": "dmd",
+      "stage2_params": {},
+      "stage3_selection": "top_n",
+      "stage3_params": {}
+    },
+    {
+      "label": "hankel+diffusion_maps+top_n",
+      "stage1_embedding": "hankel",
+      "stage1_params": {},
+      "stage2_dynamics": "diffusion_maps",
+      "stage2_params": {
+        "svd_rank": 50,
+        "k": 100
+      },
+      "stage3_selection": "top_n",
+      "stage3_params": {}
+    },
+    {
+      "label": "none+pca_ica+markov_fastest",
+      "stage1_embedding": null,
+      "stage1_params": {},
+      "stage2_dynamics": "pca_ica",
+      "stage2_params": {
+        "ica_method": "picard",
+        "n_components": 20
+      },
+      "stage3_selection": "markov_fastest",
+      "stage3_params": {
+        "n_bins": 10,
+        "search_strategy": "exhaustive"
+      }
+    },
+    {
+      "label": "none+pca_ica+markov_slowest",
+      "stage1_embedding": null,
+      "stage1_params": {},
+      "stage2_dynamics": "pca_ica",
+      "stage2_params": {
+        "ica_method": "picard",
+        "n_components": 20
+      },
+      "stage3_selection": "markov_slowest",
+      "stage3_params": {
+        "n_bins": 10,
+        "search_strategy": "exhaustive"
+      }
+    },
+    {
+      "label": "none+dmd+top_n",
+      "stage1_embedding": null,
+      "stage1_params": {},
+      "stage2_dynamics": "dmd",
+      "stage2_params": {},
+      "stage3_selection": "top_n",
+      "stage3_params": {}
+    },
+    {
+      "label": "none+diffusion_maps+top_n",
+      "stage1_embedding": null,
+      "stage1_params": {},
+      "stage2_dynamics": "diffusion_maps",
+      "stage2_params": {
+        "svd_rank": 50,
+        "k": 100
+      },
+      "stage3_selection": "top_n",
+      "stage3_params": {}
+    }
+  ],
+
+  "shared_params": {
+    "latent_dim": 2,
+    "l_freq": 1.0,
+    "h_freq": 40.0,
+    "ica_method": "picard",
+    "analysis_dim": null,
+    "column": null,
+    "save_potential": true,
+    "no_save_potential": false,
+    "verbose": true,
+    "ignore_cache": false,
+    "hankel_embedding_depth": null,
+    "diffusion_sigma": null,
+    "diffusion_k": 100,
+    "diffusion_time": 0.0,
+    "diffusion_alpha": 0.5,
+    "fc_metric": "variance_sum",
+    "n_bins": 10,
+    "workers": null,
+    "search_strategy": "exhaustive",
+    "km_bins": 40
+  },
+
+  "execution": {
+    "delay": 2.0,
+    "max_workers": 1,
+    "run_postprocess": true,
+    "log_level": "INFO"
+  },
+
+  "postprocess": {
+    "potential_img": "potential_2d.png",
+    "nonconservative_img": "potential_2d_nonconservative_force.png",
+    "composite_prefix": "methods_comparison"
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "pipeline_module": "src.pipelines.test_iga_from_eeg_latent_ludovico_01",
+
+  "subjects": [
+    "data_01_23_18",
+    "data_01_24_18",
+    "data_01_24_24",
+    "data_01_25_18",
+    "data_01_25_24",
+    "data_01_26_24",
+    "data_01_26_32",
+    "data_01_27_24",
+    "data_01_27_32",
+    "data_01_30_32"
+  ],
+
+  "time_window": {
+    "t_start": 0.0,
+    "t_end": 10.0
+  },
+
+  "methods": [
+    {
+      "label": "hankel+pca+top_n",
+      "stage1_embedding": "hankel",
+      "stage1_params": {"depth": 10},
+      "stage2_dynamics": "cdhsa_specific_modes",
+      "stage2_params": {
+        "mode_map_path": "params/mode_map_4_modes_ludovico_01_all_conditions_full.json"
+      },
+      "stage3_selection": "top_n",
+      "stage3_params": {}
+    }
+  ],
+
+  "shared_params": {
+    "latent_dim": 2,
+    "sfreq": 1000.0,
+    "l_freq": null,
+    "h_freq": null,
+    "ica_method": null,
+    "analysis_dim": null,
+    "column": null,
+    "save_potential": true,
+    "no_save_potential": false,
+    "verbose": true,
+    "ignore_cache": false,
+    "hankel_embedding_depth": null,
+    "diffusion_sigma": null,
+    "diffusion_k": 100,
+    "diffusion_time": 0.0,
+    "diffusion_alpha": 0.5,
+    "fc_metric": "variance_sum",
+    "n_bins": 10,
+    "workers": null,
+    "search_strategy": "exhaustive",
+    "km_bins": 12
+  },
+
+  "execution": {
+    "delay": 2.0,
+    "max_workers": 4,
+    "run_postprocess": true,
+    "log_level": "INFO"
+  },
+
+  "postprocess": {
+    "potential_img": "potential_2d.png",
+    "nonconservative_img": "potential_2d_nonconservative_force.png",
+    "composite_prefix": "methods_comparison"
+  }
+}
