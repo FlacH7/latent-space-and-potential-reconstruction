@@ -11,7 +11,7 @@
 
   "sessions": ["session1"],
 
-  "tasks": ["eyesclosed","mathematic"],
+  "tasks": ["eyesclosed", "eyesopen", "mathematic", "memory", "music"],
 
   "time_window": {
     "t_start": 100.0,
@@ -22,11 +22,13 @@
   "methods": [
     {
       "label": "hankel+cdhsa+top_4",
+      "_comment_mode_map": "Los paths aceptan placeholders ${VAR} y ~ (se expanden en runtime). Los valores privados (rutas absolutas de tu maquina) viven en el .env gitignored: CDHSA_PARAMS_DIR (dir del mode_map) y CDHSA_RESULTS_DIR (dir de cdhsa_arrays.npz). Alternativa sin env vars: rutas relativas al repo + copiar el mode_map a params/ (gitignored) y/o symlink de results/cdhsa.",
       "stage1_embedding": "hankel",
       "stage1_params": {"depth": 10},
       "stage2_dynamics": "cdhsa_specific_modes",
       "stage2_params": {
-        "mode_map_path": "params/mode_map_4_modes_session1_eyesclosed_mathematic_100.0s-200.0s.json"
+        "mode_map_path": "${CDHSA_PARAMS_DIR}/mode_map_4_modes_session1_eyesclosed_eyesopen_mathematic_memory_music_100.0s-200.0s.json",
+        "npz_path": "${CDHSA_RESULTS_DIR}/cdhsa_arrays.npz"
       },
       "stage3_selection": "top_n",
       "stage3_params": {}
@@ -43,7 +45,7 @@
     "save_potential": true,
     "no_save_potential": false,
     "verbose": true,
-    "ignore_c35439ache": false,
+    "ignore_cache": false,
     "hankel_embedding_depth": null,
     "diffusion_sigma": null,
     "diffusion_k": 100,

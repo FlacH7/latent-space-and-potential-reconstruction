@@ -72,6 +72,19 @@
       "stage3_params": {}
     },
     {
+      "label": "hankel+cdhsa+top_4",
+      "_comment_mode_map": "Metodo que proyecta el block-Hankel sobre los modos especificos de CD-HSA (requiere un mode_map.json generado por el repo de CD-HSA). Los paths aceptan placeholders ${VAR} y ~: define CDHSA_PARAMS_DIR y CDHSA_RESULTS_DIR en tu .env (gitignored) para no exponer rutas privadas. Si prefieres rutas relativas, copia el mode_map a params/ (gitignored) y resuelve el NPZ con un symlink o con npz_path relativo.",
+      "stage1_embedding": "hankel",
+      "stage1_params": {"depth": 10},
+      "stage2_dynamics": "cdhsa_specific_modes",
+      "stage2_params": {
+        "mode_map_path": "${CDHSA_PARAMS_DIR}/mode_map_N_modes_<session>_<tasks>_<window>.json",
+        "npz_path": "${CDHSA_RESULTS_DIR}/cdhsa_arrays.npz"
+      },
+      "stage3_selection": "top_n",
+      "stage3_params": {}
+    },
+    {
       "label": "none+pca_ica+markov_fastest",
       "stage1_embedding": null,
       "stage1_params": {},
