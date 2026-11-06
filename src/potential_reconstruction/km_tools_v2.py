@@ -39,9 +39,18 @@ from src.potential_reconstruction.iga_reconstructor import (
     BSplineTensorSpace
 )
 
+from src.potential_reconstruction.pspline_estimator import (
+    estimate_drift_diffusion_psplines,
+    PSplineConfig,
+)
+
 from src.utils.config import(
     BASE_CACHE_PATH
 )
+
+# Métodos de estimación de coeficientes KM soportados
+_NW_ALIASES = {'nadaraya_watson', 'nw', 'kernel', 'nadaraya-watson'}
+_PSPLINE_ALIASES = {'p_splines', 'psplines', 'pspline', 'p-splines'}
 
 # =============================================================================
 # SECCIÓN 0: UTILIDADES GENERALES
@@ -209,7 +218,7 @@ def _rebuild_theoretical(model_info, D):
                 return U
             else:
                 U = np.zeros(x.shape[0])
-                if D >= 2: r2 = x[:, 0]**2 + x[:, 1]**2; U += -0.5 * lam * r2 + 0.25 * r2**2
+                if D >= 2: r2 = x[:, 0]**2 + x[1]**2; U += -0.5 * lam * r2 + 0.25 * r2**2
                 for i in range(2, D): U += 0.5 * theta_rest_vec[i-2] * x[:, i]**2
                 return U
     elif name == 'single_well':
@@ -282,7 +291,7 @@ def _rebuild_theoretical(model_info, D):
                         if j < 3:
                             U += c*x[:, i]**2*x[:, j]**2
                 for i in range(2, D):
-                    U += k_rest*x[:, i]**2
+                    U += k_rest*x[i]**2
                 return U
     else:
         raise ValueError(f"Modelo {name} no reconocido para reconstrucción")
@@ -467,7 +476,7 @@ def _simulate_single_well(D, dt, T, burn_ratio, seed, params):
 
 def _simulate_asymmetric_double_well(D, dt, T, burn_ratio, seed, params):
     """
-    Potencial doble pozo asimétrico: U(x) = a*x^4 - b*x^3 + c*x^2 + d*x.
+    Potencial doble pozo asimétrico: U(x) = a*x^4 - b*x**3 + c*x**2 + d*x.
     Los pozos tienen profundidades diferentes (test de sensibilidad a asimetría).
     """
     a = params.get('a', 1.0)
@@ -590,7 +599,7 @@ def _simulate_triple_well_3d(D, dt, T, burn_ratio, seed, params):
                     if j < 3:
                         U += c*x[:, i]**2*x[:, j]**2
             for i in range(2, D):
-                U += k_rest*x[:, i]**2
+                U += k_rest*x[i]**2
             return U
     theoretical = {
         'drift_func': drift_func, 'diffusion_func': diffusion_func, 'potential_func': potential_func,
@@ -801,7 +810,7 @@ def _simulate_stochastic_oscillator(D, dt, T, burn_ratio, seed, params):
             return U
         else:
             U = np.zeros(x.shape[0])
-            if D >= 2: r2 = x[:, 0]**2 + x[:, 1]**2; U += -0.5 * lam * r2 + 0.25 * r2**2
+            if D >= 2: r2 = x[:, 0]**2 + x[1]**2; U += -0.5 * lam * r2 + 0.25 * r2**2
             for i in range(2, D): U += 0.5 * theta_rest_vec[i-2] * x[:, i]**2
             return U
     theoretical = {
@@ -817,11 +826,55 @@ def _simulate_stochastic_oscillator(D, dt, T, burn_ratio, seed, params):
 # =============================================================================
 
 def extract_km_coefficients(data, bins, p=2, bw=None, kernel='epanechnikov', dt=1.0,
-                            sigma_smooth=0.0, density_threshold=0.0):
+                            sigma_smooth=0.0, density_threshold=0.0,
+                            estimation_method='nadaraya_watson',
+                            pspline_config=None,
+                            return_estimation_info=False):
     """
     Estima coeficientes de Kramers-Moyal con post-suavizado opcional
     para eliminar artefactos de borde.
+
+    Parameters
+    ----------
+    estimation_method : str
+        'nadaraya_watson' (alias 'nw', 'kernel'): estimador local por
+        kernel sobre bins (comportamiento histórico por defecto).
+        'p_splines' (alias 'psplines', 'pspline'): estimador global
+        P-splines penalizado definido en pspline_estimator.py.
+    pspline_config : None, dict o PSplineConfig
+        Hiperparámetros del estimador P-splines (n_basis, degree,
+        lambda_drift, lambda_diffusion, ...). Solo se usa con
+        estimation_method='p_splines'.
+    return_estimation_info : bool
+        Si True, retorna (drift, diffusion, edges, info) donde info es un
+        dict con diagnósticos del estimador. Si False (default), retorna
+        exactamente (drift, diffusion, edges), como históricamente.
+
+    Notas
+    -----
+    En el modo 'p_splines' los parámetros p, bw, kernel, sigma_smooth y
+    density_threshold no aplican (el ajuste es global, sin bins ni kernel;
+    el enmascaramiento por densidad queda a cargo de la etapa IgA).
     """
+    method = str(estimation_method).lower()
+
+    if method in _PSPLINE_ALIASES:
+        drift, diffusion, edges, info = estimate_drift_diffusion_psplines(
+            data, bins=bins, dt=dt, config=pspline_config
+        )
+        if return_estimation_info:
+            return drift, diffusion, edges, info
+        return drift, diffusion, edges
+
+    if method not in _NW_ALIASES:
+        raise ValueError(
+            f"estimation_method='{estimation_method}' no reconocido. "
+            f"Válidos: {sorted(_NW_ALIASES | _PSPLINE_ALIASES)}"
+        )
+
+    # ------------------------------------------------------------------
+    # Ruta Nadaraya–Watson (histórica, sin cambios funcionales)
+    # ------------------------------------------------------------------
     if isinstance(kernel, str):
         if kernel == 'epanechnikov':
             kernel_func = epanechnikov
@@ -918,7 +971,37 @@ def extract_km_coefficients(data, bins, p=2, bw=None, kernel='epanechnikov', dt=
                 if not np.all(np.isnan(diffusion[i, j])):
                     diffusion[i, j] = np.where(mask, diffusion[i, j], np.nan)
 
+    if return_estimation_info:
+        info = {
+            'method': 'nadaraya_watson',
+            'kernel': kernel if isinstance(kernel, str) else getattr(kernel, '__name__', 'custom'),
+            'bw': bw,
+            'sigma_smooth': sigma_smooth,
+            'density_threshold': density_threshold,
+        }
+        return drift, diffusion, edges, info
     return drift, diffusion, edges
+
+
+def estimate_drift_diffusion(data, bins, dt=1.0, estimation_method='nadaraya_watson',
+                             p=2, bw=None, kernel='epanechnikov', sigma_smooth=0.0,
+                             density_threshold=0.0, pspline_config=None,
+                             return_info=False):
+    """
+    Wrapper general de estimación de deriva y difusión.
+
+    Selecciona el estimador mediante ``estimation_method`` y delega en
+    ``extract_km_coefficients``. Por defecto retorna
+    ``(drift, diffusion, edges)``; con ``return_info=True`` retorna
+    ``(drift, diffusion, edges, info)``.
+    """
+    out = extract_km_coefficients(
+        data, bins=bins, p=p, bw=bw, kernel=kernel, dt=dt,
+        sigma_smooth=sigma_smooth, density_threshold=density_threshold,
+        estimation_method=estimation_method, pspline_config=pspline_config,
+        return_estimation_info=return_info,
+    )
+    return out
 
 # =============================================================================
 # SECCIÓN 3: RECONSTRUCCIÓN DE POTENCIAL (wrappers a IgA)
@@ -1998,7 +2081,7 @@ def plot_potential_slice(U, edges, dims=(0, 1), fixed_coords=None,
     reconstructed_drift : ndarray (D, n1, ..., nD) or None
         Drift reconstruido f_recon = -D·g_recon. Si se provee, tiene
         prioridad sobre reconstructed_field y las streamlines siguen la
-        dirección FÍSICA de la dinámica (descienden U).
+        dirección FÍSICA de la dinámica (desciende U).
     show_streamlines : bool
         Si True y hay campo disponible, mostrar streamlines.
     stream_color : str
