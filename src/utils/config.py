@@ -52,12 +52,30 @@ TIME=1800*2
 SEED = 123
 DEGREE = 2
 
+# Método de estimación de coeficientes KM:
+#   'nadaraya_watson' — kernel local sobre bins (histórico, default)
+#   'p_splines'       — ajuste global P-splines penalizado (sin bins)
+ESTIMATION_METHOD = 'nadaraya_watson'
+
+# Hiperparámetros por defecto del estimador P-splines
+# (ver src/potential_reconstruction/pspline_estimator.py::PSplineConfig)
+PSPLINE_DEFAULTS = {
+    'n_basis': 8,
+    'degree': 3,
+    'lambda_drift': 1e-3,
+    'lambda_diffusion': 1e-3,
+    'domain_quantile': 0.005,
+    'domain_padding': 0.05,
+    'grid_margin': 0.30,
+}
+
 CONFIGS = {
     'base_2D_model':{
         'D': 2, 'dt': DT, 'T': TIME, 'burn_ratio': BURN_RATIO, 'seed': SEED,
         'bins': np.array([50, 50]),
         'drift_components': [0, 1], 'diff_components': [(0,0), (1,1), (0,1)],
         'degree': DEGREE,
+        'estimation_method': ESTIMATION_METHOD, 'pspline': PSPLINE_DEFAULTS,
     },
     'ou': {
         'model': 'ou', 'D': 2, 'dt': DT, 'T': TIME, 'burn_ratio': BURN_RATIO, 'seed': SEED,
@@ -65,6 +83,7 @@ CONFIGS = {
         'bins': np.array([100, 100]),
         'drift_components': [0, 1], 'diff_components': [(0,0), (1,1), (0,1)],
         'degree': DEGREE,
+        'estimation_method': ESTIMATION_METHOD, 'pspline': PSPLINE_DEFAULTS,
     },
     'single_well': {
         'model': 'single_well', 'D': 1, 'dt': DT, 'T': TIME, 'burn_ratio': BURN_RATIO, 'seed': SEED,
@@ -72,6 +91,7 @@ CONFIGS = {
         'bins': np.array([200]),
         'drift_components': [0], 'diff_components': [(0,0)],
         'degree': DEGREE,
+        'estimation_method': ESTIMATION_METHOD, 'pspline': PSPLINE_DEFAULTS,
     },
     'asymmetric_double_well': {
         'model': 'asymmetric_double_well', 'D': 1, 'dt': DT, 'T': TIME, 'burn_ratio': BURN_RATIO, 'seed': SEED,
@@ -79,6 +99,7 @@ CONFIGS = {
         'bins': np.array([200]),
         'drift_components': [0], 'diff_components': [(0,0)],
         'degree': DEGREE,
+        'estimation_method': ESTIMATION_METHOD, 'pspline': PSPLINE_DEFAULTS,
     },
     'double_well': {
         'model': 'double_well', 'D': 2, 'dt': DT, 'T': TIME, 'burn_ratio': BURN_RATIO, 'seed': SEED,
@@ -86,6 +107,7 @@ CONFIGS = {
         'bins': np.array([50,50]),
         'drift_components': [0, 1], 'diff_components': [(0,0), (1,1), (0,1)],
         'degree': DEGREE,
+        'estimation_method': ESTIMATION_METHOD, 'pspline': PSPLINE_DEFAULTS,
     },
     'triple_well_3d': {
         'model': 'triple_well_3d', 'D': 3, 'dt': DT, 'T': TIME, 'burn_ratio': BURN_RATIO, 'seed': SEED,
@@ -93,6 +115,7 @@ CONFIGS = {
         'bins': np.array([40, 40, 40]),
         'drift_components': [0, 1, 2], 'diff_components': [(0,0), (1,1), (2,2), (0,1), (0,2),(1,2)],
         'degree': DEGREE,
+        'estimation_method': ESTIMATION_METHOD, 'pspline': PSPLINE_DEFAULTS,
     },
     'ring_attractor': {
         'model': 'ring_attractor', 'D': 2, 'dt': DT, 'T': TIME, 'burn_ratio': BURN_RATIO, 'seed': SEED,
@@ -100,6 +123,7 @@ CONFIGS = {
         'bins': np.array([100, 100]),
         'drift_components': [0, 1], 'diff_components': [(0,0), (1,1), (0,1)],
         'degree': DEGREE,
+        'estimation_method': ESTIMATION_METHOD, 'pspline': PSPLINE_DEFAULTS,
     },
     'multi_stable': {
         'model': 'multi_stable', 'D': 2, 'dt': DT, 'T': TIME, 'burn_ratio': BURN_RATIO, 'seed': SEED,
@@ -107,6 +131,7 @@ CONFIGS = {
         'bins': np.array([100, 100]),
         'drift_components': [0, 1], 'diff_components': [(0,0), (1,1), (0,1)],
         'degree': DEGREE,
+        'estimation_method': ESTIMATION_METHOD, 'pspline': PSPLINE_DEFAULTS,
     },
     'stochastic_oscillator': {
         'model': 'stochastic_oscillator', 'D': 2, 'dt': DT, 'T': TIME, 'burn_ratio': BURN_RATIO, 'seed': SEED,
@@ -114,5 +139,6 @@ CONFIGS = {
         'bins': np.array([60, 60]),
         'drift_components': [0, 1], 'diff_components': [(0,0), (1,1), (0,1)],
         'degree': DEGREE,
+        'estimation_method': ESTIMATION_METHOD, 'pspline': PSPLINE_DEFAULTS,
     }
 }
