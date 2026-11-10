@@ -1,0 +1,848 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{microtype}
+
+\newtheorem{theorem}{Theorem}[section]
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\topT}{^{\top}}
+\newcommand{\grad}{\nabla}
+\newcommand{\Div}{\nabla\!\cdot\!}
+\newcommand{\curl}{\nabla\!\times\!}
+\newcommand{\perpgrad}{\nabla^{\!\perp}}
+\newcommand{\Drift}{D^{(1)}}
+\newcommand{\Diff}{D^{(2)}}
+\newcommand{\norm}[1]{\lVert #1 \rVert}
+
+\title{Reconstruction of Scalar Potentials and Rotational Components\\
+from Latent Spaces with P-spline Kramers--Moyal Estimation}
+\author{}
+\date{November 11, 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We present a fully data-driven pipeline for reconstructing effective scalar
+potentials and rotational components from low-dimensional latent trajectories
+extracted from EEG recordings. Drift and diffusion fields are estimated from
+the Kramers--Moyal conditional moments by \emph{global penalised B-spline
+regression} (P-splines), which replaces the local Nadaraya--Watson kernel
+estimator and removes the need for spatial binning at the estimation stage.
+The diffusion matrix is inverted through adaptive SVD truncation, and both the
+conservative and solenoidal parts of the effective field are recovered using a
+variational Galerkin--B-spline formulation (Isogeometric Analysis) with
+built-in Helmholtz decomposition. In two dimensions the decomposition decouples
+into two independent scalar Poisson equations---one for the potential and one
+for the stream function---solved with identical stiffness matrices. A
+non-equilibrium metric quantifies the relative weight of the rotational
+component. The penalisation parameter $\lambda$ of the P-spline estimator plays
+the role of the kernel bandwidth of the classical estimator and becomes the
+central hyperparameter to calibrate; we define the full hyperparameter set of
+the method and a validation strategy to select it. Numerical experiments on
+equilibrium and non-equilibrium stochastic systems are reported in
+Section~\ref{sec:experiments} [placeholders pending final runs].
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%==============================================================================
+\section{Introduction}
+%==============================================================================
+
+We work with time-series data of dimensionality 1 to 5 that represent a latent
+space extracted from EEG recordings. The extraction pipeline combines PCA
+whitening, Independent Component Analysis (ICA), Markov-time estimation, and
+the computation of conservative fractions to obtain a low-dimensional embedding
+that captures the essential stochastic dynamics of the underlying neural
+activity \cite{tabar2019}. The question we address is whether, from these
+latent trajectories, one can reconstruct an effective scalar potential whose
+geometry reveals the attractors, barriers, and basins that govern the system's
+behaviour, and, when the system operates far from detailed balance, whether one
+can additionally recover the rotational component that drives circulating
+currents and limit-cycle dynamics.
+
+The goal is to develop a fully data-driven reconstruction pipeline that takes
+the latent time series, estimates the drift and diffusion fields from the
+Kramers--Moyal conditional moments \cite{risken1989}, and recovers both the
+conservative and solenoidal parts of the effective field through a variational
+Galerkin--B-spline formulation (Isogeometric Analysis, see
+\cite{cottrell2009}) with built-in Helmholtz decomposition. The resulting
+potentials and stream functions can then be catalogued and compared across
+subjects or brain states, opening the door to a ``zoology of potentials'' that
+characterises different dynamical regimes in an interpretable, low-dimensional
+form.
+
+The present document extends the pipeline described in the companion report
+(\emph{Reconstruction of Scalar Potentials and Rotational Components from
+Latent Spaces}) by replacing the estimation stage. In the original pipeline the
+Kramers--Moyal coefficients are estimated locally by Nadaraya--Watson kernel
+regression on a regular grid of bins, which requires choosing a kernel, a
+bandwidth, a bin count, a post-smoothing scale, and a density threshold, and
+which suffers from boundary bias and from the curse of dimensionality through
+cell occupancy. Here the coefficients are instead estimated by
+\emph{P-splines} \cite{eilers1996}: a global regression on a tensor-product
+B-spline basis with a difference penalty on the coefficients. The estimator is
+defined without any spatial discretisation of the data, is naturally robust to
+boundary effects through the penalty, and reduces the bandwidth selection
+problem to the calibration of a scalar penalisation parameter $\lambda$ (one
+for the drift, one for the diffusion). All downstream stages---robust
+inversion of the diffusion matrix, IgA reconstruction, Helmholtz decomposition,
+and the non-equilibrium metric---are unchanged, since the P-spline estimator
+delivers the same outputs (drift field, diffusion field, grid edges) evaluated
+on an arbitrary output grid.
+
+A key motivation for extending the method beyond the scalar potential is that
+many neural and physical systems exhibit non-equilibrium dynamics---circulating
+probability currents, limit cycles, and oscillatory behaviour---that a purely
+conservative potential cannot reproduce. In such systems the drift field
+contains a solenoidal component that carries essential dynamical information.
+By reconstructing both components, the pipeline provides a complete picture of
+the effective dynamics directly from data.
+
+%==============================================================================
+\section{Physical framework and problem formulation}
+%==============================================================================
+
+\subsection{Fokker--Planck equation and Kramers--Moyal coefficients}
+
+Consider a $D$-dimensional diffusion process governed by the It\^o stochastic
+differential equation
+\begin{equation}
+\dd X_t = f(X_t)\,\dd t + \sigma(X_t)\,\dd W_t,
+\label{eq:sde}
+\end{equation}
+where $f:\R^D \to \R^D$ is the drift, $\sigma:\R^D \to \R^{D\times M}$ is the
+noise coupling matrix, and $W_t$ is an $M$-dimensional Wiener process. The
+probability density $\rho(x,t)$ evolves according to the forward
+Fokker--Planck equation \cite{risken1989,gardiner2009}
+\begin{equation}
+\frac{\partial \rho(x,t)}{\partial t}
+= -\Div \big[ f(x)\,\rho(x,t) \big]
++ \grad\grad : \big[ D(x)\,\rho(x,t) \big],
+\label{eq:fpe}
+\end{equation}
+where $D(x) = \tfrac{1}{2}\sigma(x)\sigma(x)\topT$ is the symmetric positive
+semi-definite diffusion matrix. The coefficients that appear in the
+Kramers--Moyal expansion are the conditional moments
+\begin{equation}
+\Drift_i(x) = \lim_{\Delta t \to 0}
+\frac{\mathbb{E}[\Delta X_i \mid X_t = x]}{\Delta t},
+\qquad
+\Diff_{ij}(x) = \lim_{\Delta t \to 0}
+\frac{\mathbb{E}[\Delta X_i\, \Delta X_j \mid X_t = x]}{2\,\Delta t},
+\label{eq:km_moments}
+\end{equation}
+which coincide with $f_i(x)$ and $D_{ij}(x)$, respectively. Pawula's theorem
+guarantees that the expansion may be truncated at second order whenever $D(x)$
+is positive definite \cite{risken1989}.
+
+\subsection{Scalar potential and the non-equilibrium effective field}
+
+In steady state the probability current
+\begin{equation}
+J(x) = f(x)\,\rho(x) - \Div \big[ D(x)\,\rho(x) \big]
+\label{eq:current}
+\end{equation}
+is solenoidal ($\Div J = 0$). Under the hypothesis of detailed balance one has
+$J \equiv 0$, which implies a purely conservative decomposition $f = -D\,\grad
+U$ with $U$ a scalar potential; the stationary density then takes the
+Boltzmann-like form $\rho \propto \exp(-U)$. Experimental data---in particular
+latent spaces extracted from EEG---rarely satisfy detailed balance exactly.
+
+In the general non-equilibrium case the drift decomposes as
+\begin{equation}
+f(x) = -D(x)\,\grad U(x) + v(x),
+\label{eq:drift_decomp}
+\end{equation}
+where $U$ is the scalar potential and $v$ is a non-conservative force that
+encodes circulating currents, limit-cycle dynamics, and other genuinely
+non-equilibrium phenomena.
+
+We define the effective field
+\begin{equation}
+g(x) = -D(x)^{-1} f(x) = \grad U(x) - D(x)^{-1} v(x),
+\label{eq:effective_field}
+\end{equation}
+which reduces to $\grad U$ when $v \equiv 0$. Crucially, $g$ is obtained by a
+purely algebraic transformation of the estimated drift and diffusion; no
+assumption of detailed balance is made at any stage.
+
+\subsection{Helmholtz decomposition and variational formulation}
+\label{sec:helmholtz}
+
+Given the estimated field $g$ on a domain $\Omega$ with sufficient empirical
+density, we decompose it into its conservative and solenoidal constituents. The
+space of square-integrable vector fields admits the orthogonal Helmholtz
+decomposition \cite{strang1986,helmholtz1858}
+\begin{equation}
+L^2(\Omega;\R^D) = \mathcal{G} \oplus \mathcal{S},
+\end{equation}
+with
+\begin{equation}
+\mathcal{G} = \{ \grad u : u \in H^1(\Omega) \},
+\qquad
+\mathcal{S} = \{ r \in L^2(\Omega;\R^D) : \Div r = 0,\;
+r \cdot n|_{\partial\Omega} = 0 \}.
+\end{equation}
+
+The conservative component $\grad U$ is obtained by minimising the $L^2$
+discrepancy \cite{strang1986}:
+\begin{equation}
+U^* = \arg\min_{U \in H^1(\Omega)}
+\int_\Omega \norm{\grad U(x) - g(x)}^2 \, \dd V .
+\label{eq:variational}
+\end{equation}
+The optimality condition $\delta J = 0$ for arbitrary variations
+$\delta U \in H^1(\Omega)$ yields, after integration by parts, the field
+equation and natural Neumann boundary condition
+\begin{equation}
+-\grad^2 U = -\Div g \quad \text{in } \Omega,
+\qquad
+\frac{\partial U}{\partial n} = g \cdot n \quad \text{on } \partial\Omega .
+\label{eq:poisson_U}
+\end{equation}
+Because $U$ is defined only up to an additive constant, we anchor it at the
+point of maximum empirical density,
+\begin{equation}
+U(x_{\max}) = 0,
+\qquad
+x_{\max} = \arg\max_{x \in \Omega} \rho(x),
+\label{eq:anchoring}
+\end{equation}
+which corresponds to the theoretical minimum of the potential for stationary
+dynamics.
+
+\subsection{Non-equilibrium metric}
+
+The solenoidal residual $r = g - \grad U$ is computed explicitly after solving
+for $U$. We define the non-equilibrium metric
+\begin{equation}
+\eta = \frac{\norm{r}_{L^2,w}}{\norm{g}_{L^2,w}}
+= \sqrt{\frac{\sum_k w_k\, \norm{r_k}^2}{\sum_k w_k\, \norm{g_k}^2}},
+\label{eq:eta}
+\end{equation}
+where the norm is weighted by the cell volume and the empirical density. The
+physical interpretation is direct:
+\begin{itemize}
+\item If $\eta < 0.1$, the system is close to detailed balance and $U$ is a
+genuine physical potential, interpretable in terms of energy barriers and
+Kramers escape rates \cite{risken1989}.
+\item If $0.1 \le \eta < 0.5$, the rotational component is moderate: $U$
+captures the restoring dynamics while $r$ contains the inertial or circulating
+motion.
+\item If $\eta \ge 0.5$, the reconstruction is a mathematically valid
+projection that serves as a topological descriptor of the stationary
+density---to first approximation $U \approx -\log\rho$---but should not be
+interpreted as mechanical energy of the system nor used to reconstruct the
+full drift via $f = -D\,\grad U$.
+\end{itemize}
+
+%==============================================================================
+\section{Recovery of the rotational component}
+%==============================================================================
+
+\subsection{Stream function and decoupled Poisson system in 2D}
+
+In two dimensions the Helmholtz decomposition admits a particularly convenient
+representation. A classical result due to Auchmuty \cite{auchmuty2016}
+guarantees that every solenoidal field $r \in \mathcal{S}$ on a simply
+connected domain $\Omega \subset \R^2$ with $r \cdot n|_{\partial\Omega} = 0$
+can be written as the perpendicular-gradient of a scalar stream function
+$\psi$:
+\begin{equation}
+r(x) = \perpgrad \psi(x) \triangleq
+\begin{pmatrix} -\partial_{x_2}\psi \\ \partial_{x_1}\psi \end{pmatrix}.
+\label{eq:stream_function}
+\end{equation}
+The full decomposition of the effective field therefore reads
+\begin{equation}
+g(x) = \grad U(x) + \perpgrad \psi(x).
+\label{eq:hodge_2d}
+\end{equation}
+
+Applying the divergence operator to \eqref{eq:hodge_2d} and noting that
+$\Div(\perpgrad\psi) = 0$ recovers the Poisson equation for $U$ derived in
+Section~\ref{sec:helmholtz}. Applying the scalar curl operator
+$\curl g = \partial_{x_1} g_2 - \partial_{x_2} g_1$ and using
+$\curl(\grad U) = 0$ yields a second, independent Poisson equation for the
+stream function:
+\begin{equation}
+-\grad^2 \psi = \curl g \quad \text{in } \Omega,
+\qquad
+\frac{\partial \psi}{\partial n} = g \cdot \tau \quad \text{on } \partial\Omega,
+\label{eq:poisson_psi}
+\end{equation}
+where $\tau = (-n_2, n_1)$ is the unit tangent vector. Both boundary
+conditions are natural Neumann conditions that emerge from the variational
+formulation. The critical advantage of this 2D formulation is that the system
+fully decouples: $U$ and $\psi$ satisfy two independent scalar Poisson
+equations, each amenable to the same Galerkin--B-spline machinery.
+
+\subsection{Variational formulation for the stream function}
+
+The weak form for $\psi$ mirrors that of $U$. We seek $\psi \in H^1(\Omega)$
+such that
+\begin{equation}
+\int_\Omega \grad\psi \cdot \grad\chi \, \dd V
+= \int_\Omega g \cdot \perpgrad\chi \, \dd V,
+\qquad \forall \chi \in H^1(\Omega),
+\label{eq:weak_psi}
+\end{equation}
+where $\perpgrad\chi = (-\partial_{x_2}\chi, \partial_{x_1}\chi)$. This form
+does not require numerical differentiation of $g$---the perpendicular-gradient
+acts on the test function, not on the data---and preserves the same symmetric
+structure as the weak form for $U$. The Galerkin discretisation with B-splines
+therefore produces a linear system $K\,\mathbf{d} = F_\psi$ where the stiffness
+matrix $K$ is identical to that of the $U$ system and only the load vector
+differs: if $F_{U,i} = \sum_{d=1}^{D} \int_\Omega w(x)\, g_d(x)\,
+\partial N_i/\partial x_d \, \dd V$, then
+\begin{equation}
+F_{\psi,i} = \int_\Omega w(x) \left(
+-g_2(x)\,\frac{\partial N_i}{\partial x_1}
++ g_1(x)\,\frac{\partial N_i}{\partial x_2}
+\right) \dd V .
+\label{eq:load_psi}
+\end{equation}
+The entire infrastructure for assembling and solving the potential system is
+reused verbatim; the only additional cost is the assembly of $F_\psi$ and a
+second forward--backward substitution with the already-factorised stiffness
+matrix.
+
+\subsection{Recovering the non-conservative force}
+
+From the relation $g = -D^{-1} f$ and $f = -D\,\grad U + v$, we obtain
+$g = \grad U - D^{-1} v$, so that the solenoidal residual of the effective
+field is $r = g - \grad U = -D^{-1} v$. The non-conservative force is therefore
+recovered as
+\begin{equation}
+v = -D \cdot r = -D \cdot (g - \grad U) = f + D\,\grad U .
+\label{eq:v_recovery}
+\end{equation}
+This relation is exact and does not require solving for $\psi$. The stream
+function provides a smooth, basis-expanded representation of the same
+solenoidal component, useful for visualisation and for computing the
+reconstructed effective field
+\begin{equation}
+g_{\mathrm{recon}} = \grad U + \perpgrad \psi,
+\end{equation}
+which satisfies $\norm{g - g_{\mathrm{recon}}}_{L^2} = 0$ up to discretisation
+error.
+
+\subsection{Extension to higher dimensions}
+
+In $D = 3$ the scalar stream function is replaced by a vector potential
+$A \in H(\mathrm{curl};\Omega)$, yielding $g = \grad U + \curl A + h$, where
+$h$ is a harmonic field. On simply connected domains $h = 0$; on multiply
+connected domains the dimension of the harmonic space equals the first Betti
+number $\beta_1$ \cite{huang2016}. A gauge condition (typically the Coulomb
+gauge $\Div A = 0$) must be imposed, requiring a Lagrange-multiplier or
+augmented-Lagrangian formulation \cite{wang2016}. For $D \ge 4$ the proper
+framework is the Hodge decomposition of differential forms
+\cite{hirani2003,desbrun2005}; the coexact component derives from a 2-form with
+$\binom{n}{2}$ independent components, and tensor-product B-spline IgA becomes
+intractable due to the exponential scaling of degrees of freedom. The dominant
+practical approach, exemplified by the ddHodge framework \cite{ddhodge2025}, is
+to apply dimensionality reduction before performing the Hodge decomposition.
+
+%==============================================================================
+\section{Estimation of Kramers--Moyal coefficients with P-splines}
+\label{sec:psplines}
+%==============================================================================
+
+\subsection{From local kernel regression to global penalised regression}
+
+In the original pipeline the conditional moments \eqref{eq:km_moments} are
+estimated pointwise by Nadaraya--Watson kernel regression
+\cite{wand1995,rydin2019} on a regular grid of bin centres, using the
+\texttt{kramersmoyal} library. That estimator is \emph{local}: each evaluation
+point aggregates the increments falling inside a kernel window of bandwidth
+$h$. This design has three structural costs: (i) the data must be implicitly
+binned and the estimates are only available at bin centres; (ii) near the edges
+of the data domain the kernel leaks outside the support, producing a systematic
+boundary bias that must be corrected by post-smoothing; (iii) the estimator has
+several coupled free parameters---kernel shape, bandwidth, bin count,
+post-smoothing scale, and density threshold---whose calibration is nontrivial.
+
+Here we adopt the alternative suggested for this project: estimate both fields
+\emph{globally} by P-splines \cite{eilers1996}. Each component of the drift and
+each entry of the diffusion matrix is modelled as a tensor-product B-spline
+surface whose coefficients are fitted by penalised least squares, with a
+discrete difference penalty that controls smoothness. No spatial
+discretisation of the data is involved: every observed transition
+$(X_i \to X_{i+1})$ contributes directly to the regression at its exact
+location $X_i$.
+
+\subsection{Tensor-product B-spline basis}
+
+Let the estimation domain be the box
+$\Omega_{\mathrm{est}} = \prod_{d=1}^{D} [a_d, b_d]$, determined from the data
+by coordinate-wise quantiles with padding (Section~\ref{sec:domain}). On each
+axis we place an open, uniform knot vector with $n_{\text{basis}}$ B-spline
+basis functions $N^{(d)}_{j,p}$ of degree $p$ (Cox--de Boor recursion
+\cite{piegl2012}). The tensor-product basis is
+\begin{equation}
+N_{\mathbf{j}}(x) = \prod_{d=1}^{D} N^{(d)}_{j_d, p}(x_d),
+\qquad
+\mathbf{j} \in \mathcal{J},\quad K = |\mathcal{J}| = \prod_{d=1}^{D} n_{\text{basis}} ,
+\label{eq:tensor_basis}
+\end{equation}
+and every scalar field is expanded as $\phi_h(x) = \sum_{\mathbf{j}}
+c_{\mathbf{j}} N_{\mathbf{j}}(x)$. The total number of coefficients $K$ grows
+exponentially with $D$; a guard (\texttt{max\_tensor\_bases}) aborts the fit
+when $K$ exceeds a configurable budget.
+
+\subsection{Penalised least squares and the difference penalty}
+
+Smoothness is imposed through the P-spline penalty of Eilers and Marx
+\cite{eilers1996}: along each axis, the $m$-th order differences of the
+coefficients are penalised. For axis $d$ let $\Delta_m^{(d)}$ denote the
+$m$-th order difference matrix acting on the coefficient index $j_d$. The
+penalty matrix is
+\begin{equation}
+P = \sum_{d=1}^{D} I \otimes \cdots \otimes
+\underbrace{(\Delta_m\topT \Delta_m)}_{\text{axis } d} \otimes \cdots \otimes I ,
+\label{eq:penalty}
+\end{equation}
+so that $\mathbf{c}\topT P\, \mathbf{c}$ measures the roughness of the fitted
+surface. With penalty order $m = 2$ (the default) the limit $\lambda \to
+\infty$ drives the fit toward a global polynomial of degree $m-1$ (a plane),
+while $\lambda \to 0$ approaches an interpolant of the data.
+
+\subsection{Drift estimation by regression on the increments}
+
+For the first-order coefficient we use the finite-$\Delta t$ identity
+$\mathbb{E}[\Delta X \mid X_t = x] \approx f(x)\,\Delta t$ and regress the
+scaled increments directly: for each component $d$ we solve
+\begin{equation}
+\min_{\mathbf{c}^{(d)}}
+\sum_{i=1}^{N-1}
+\left(
+\frac{(X_{i+1} - X_i)_d}{\Delta t}
+- \sum_{\mathbf{j}} c^{(d)}_{\mathbf{j}}\, N_{\mathbf{j}}(X_i)
+\right)^{2}
++ \lambda_{\mathrm{drift}}\, (\mathbf{c}^{(d)})\topT P\, \mathbf{c}^{(d)} .
+\label{eq:drift_fit}
+\end{equation}
+This is a ridge-type linear system
+$(B\topT B + \lambda_{\mathrm{drift}} P)\, \mathbf{c}^{(d)} = B\topT y^{(d)}$,
+where $B$ is the (sparse, row-wise) basis evaluation matrix and
+$y^{(d)}_i = (X_{i+1} - X_i)_d / \Delta t$. All $D$ systems share the same
+normal matrix, so the factorisation is computed once and reused across
+components. Because the regression uses every transition at its exact
+location, there is no binning error and no boundary truncation: the penalty
+controls the extrapolation behaviour where data are scarce.
+
+\subsection{Diffusion estimation and enforcement of positive-definiteness}
+\label{sec:diffusion_fit}
+
+For the second-order coefficient we first form the residuals of the drift fit,
+$R_i = \Delta X_i - \Delta t\, \hat f(X_i)$, and regress the matrix-valued
+targets
+\begin{equation}
+S_i = \frac{R_i R_i\topT}{2\,\Delta t}
+\label{eq:diff_target}
+\end{equation}
+entry by entry: for each $(d, e)$ with $d \le e$ we solve a penalised system
+analogous to \eqref{eq:drift_fit} with penalty weight
+$\lambda_{\mathrm{diffusion}}$, and symmetrise by
+$\hat D_{ed} = \hat D_{de}$. This \emph{method of moments} route guarantees
+consistency between the estimated drift and diffusion.
+
+The pointwise estimate $\hat D(x)$ is symmetric by construction but not
+guaranteed positive semi-definite under penalisation. We enforce SPD in two
+stages: (i) a floor on the diagonal entries (\texttt{min\_diffusion}) and a
+cap on the implied correlations (\texttt{correlation\_clip}), applied to the
+fitted coefficients; (ii) a final spectral check at evaluation time via
+\texttt{np.linalg.eigh}, clipping negative eigenvalues. The diagnostics report
+the minimum eigenvalue and condition number of $\hat D$ over a probe grid, so
+that violations are visible rather than silently corrected.
+
+\subsection{Estimation domain and output grid}
+\label{sec:domain}
+
+The estimation domain $\Omega_{\mathrm{est}}$ is defined coordinate-wise from
+the data: with quantile level $q$ (\texttt{domain\_quantile}, default $0.005$)
+and relative padding $\delta$ (\texttt{domain\_padding}, default $0.05$),
+\begin{equation}
+a_d = Q_d(q) - \delta\, (Q_d(1-q) - Q_d(q)),
+\qquad
+b_d = Q_d(1-q) + \delta\, (Q_d(1-q) - Q_d(q)),
+\label{eq:domain}
+\end{equation}
+where $Q_d(\cdot)$ is the empirical quantile function of coordinate $d$.
+Quantile trimming makes the domain robust to outlier excursions that would
+otherwise stretch the knot vectors and waste basis functions.
+
+The estimator delivers the same interface as the kernel pipeline: given a
+requested output resolution \texttt{bins} $= (n_1, \dots, n_D)$ it returns the
+fields evaluated on a regular grid of cell centres, plus the grid edges. By
+default the output grid is \emph{inset} by a relative margin
+(\texttt{grid\_margin}, default $0.30$): the outer $30\%$ of the estimation
+domain on each side is excluded from the output grid. The rationale is
+downstream: the IgA stage builds a density mask on the output grid, and if the
+mask touches the grid boundary the Helmholtz solver develops spurious boundary
+modes (with amplitudes orders of magnitude above the physical range). The
+margin guarantees an empty frame between the data support and the grid edge,
+so the mask never touches the boundary. This parameter is part of the
+estimation configuration because it determines where the P-spline surfaces are
+evaluated.
+
+\subsection{The penalisation parameter as the analogue of the bandwidth}
+
+The penalisation weights $\lambda_{\mathrm{drift}}$ and
+$\lambda_{\mathrm{diffusion}}$ control the bias--variance trade-off exactly as
+the bandwidth $h$ does in the kernel estimator: small $\lambda$ follows the
+data closely (low bias, high variance); large $\lambda$ oversmooths (high
+bias, low variance). Two structural differences are worth noting. First,
+$\lambda$ acts \emph{globally} and dimensionlessly on the coefficient
+roughness, so a single value adapts to varying local data density---dense
+regions are fitted accurately while sparse regions are automatically smoothed
+toward the penalty limit, without the occupancy failures of fixed-bandwidth
+kernels. Second, the resolution of the estimator is set independently by
+$n_{\text{basis}}$, decoupling the two choices that the bin count entangles in
+the kernel pipeline. Section~\ref{sec:hyperparameters} defines the calibration
+strategy for $\lambda$ and the remaining hyperparameters.
+
+\subsection{Implementation and interface}
+
+The estimator is implemented in
+\texttt{src/potential\_reconstruction/pspline\_estimator.py} and is integrated
+into the pipeline through a dispatch parameter: \texttt{extract\_km\_coefficients}
+accepts \texttt{estimation\_method='nadaraya\_watson'} (default, historical
+behaviour, unchanged) or \texttt{estimation\_method='p\_splines'}, with the
+hyperparameters passed as a configuration dictionary. In P-splines mode the
+legacy parameters ($p$, \texttt{bw}, \texttt{kernel}, \texttt{sigma\_smooth},
+\texttt{density\_threshold}) do not apply; masking by statistical support is
+left to the IgA stage, which already weights cells by empirical density. The
+call returns \texttt{(drift, diffusion, edges)} as before, and optionally a
+diagnostics dictionary (fit RMSE and $R^2$ per drift component, minimum
+eigenvalue and condition number of $\hat D$, basis and penalty configuration).
+
+%==============================================================================
+\section{Reconstruction via isogeometric analysis}
+%==============================================================================
+
+The reconstruction stage is identical to the original pipeline; we summarise it
+here for completeness.
+
+\subsection{Robust inversion of the diffusion matrix}
+
+The pointwise estimate $\hat D(x_k)$ at each cell may be anisotropic or nearly
+singular. We employ the Moore--Penrose pseudo-inverse via SVD with adaptive
+truncation \cite{golub2013}. At each cell $k$,
+$\hat D_k = V_k \Sigma_k V_k\topT$, and the truncation threshold
+$\tau_k = \max(\texttt{atol},\, \texttt{rtol}\, \sigma_{k,1})$ (typically
+$\texttt{rtol} = 10^{-6}$, $\texttt{atol} = 10^{-12}$) nulls directions with
+insufficient statistical information, so that
+$g_k = -\hat D_k^{+} f_k$ is determined along those axes by the global
+smoothness of the variational solver rather than by amplifying noise.
+
+\subsection{Tensor-product B-spline space}
+
+Both the potential and the stream function are expanded in tensor-product
+B-splines \cite{piegl2012,cottrell2009}:
+\begin{equation}
+U_h(x) = \sum_{j \in J} c_j N_j(x),
+\qquad
+\psi_h(x) = \sum_{j \in J} d_j N_j(x),
+\end{equation}
+with partition of unity, compact support, non-negativity, and $C^{p-1}$
+continuity at simple knots. For $p = 3$ the potential is $C^2$ and its
+gradient $C^1$, eliminating the need for arbitrary post-hoc smoothing.
+
+\subsection{Galerkin formulation and system assembly}
+
+Substituting $U_h$ into the weak form \eqref{eq:variational} and taking test
+functions $v = N_i$ (Bubnov--Galerkin \cite{cottrell2009}) yields the linear
+system $K\,\mathbf{c} = F_U$ with
+\begin{equation}
+K_{ij} = \sum_{d=1}^{D} \int_\Omega w(x)\,
+\frac{\partial N_i}{\partial x_d} \frac{\partial N_j}{\partial x_d} \, \dd V,
+\qquad
+F_{U,i} = \sum_{d=1}^{D} \int_\Omega w(x)\, g_d(x)\,
+\frac{\partial N_i}{\partial x_d} \, \dd V,
+\end{equation}
+where the weight function
+$w(x) = \min\big(1,\, \rho(x)/\rho_{\mathrm{threshold}}\big)$,
+$\rho_{\mathrm{threshold}} = 0.05 \max_x \rho(x)$, weights each cell by its
+statistical quality. For the stream function the same stiffness matrix is
+reused with the load vector \eqref{eq:load_psi}.
+
+\begin{theorem}
+Let $U$ be the solution of $-\grad^2 U = -\Div g$ with natural Neumann
+conditions $\partial U / \partial n = g \cdot n$. Then $\grad U$ is the
+orthogonal projection of $g$ onto the gradient subspace $\mathcal{G}$ in the
+$L^2$ sense.
+\end{theorem}
+\begin{proof}
+The weak form reads $\int_\Omega \grad U \cdot \grad v \, \dd V = \int_\Omega g
+\cdot \grad v \, \dd V$ for all $v \in H^1(\Omega)$, i.e.\
+$\int_\Omega (\grad U - g) \cdot \grad v \, \dd V = 0$, which is precisely the
+orthogonality condition $(\grad U - g) \perp \mathcal{G}$. Since $\grad U \in
+\mathcal{G}$ by construction, $r = g - \grad U \in \mathcal{G}^{\perp} =
+\mathcal{S}$.
+\end{proof}
+
+\subsection{Solver and potential anchoring}
+
+Each system has rank $N_{\mathrm{dof}} - 1$, with kernel the constant
+functions; we fix the coefficient whose basis function peaks at the cell of
+highest empirical density via the penalty method (a penalty of $10^{12}
+\max|K_{ij}|$ on the diagonal). For $N_{\mathrm{dof}} < 5000$ we use a direct
+supernodal sparse LDL$\topT$ factorisation \cite{golub2013}; for larger
+systems, preconditioned conjugate gradients with incomplete Cholesky
+preconditioning. For the stream-function system the factorisation of $K$ is
+reused.
+
+%==============================================================================
+\section{Pipeline synthesis}
+%==============================================================================
+
+The complete reconstruction workflow integrates the stages described above.
+The input is a latent trajectory $x(t) \in \R^D$ extracted from EEG by PCA
+whitening and ICA. First, the Kramers--Moyal stage estimates the drift
+$\Drift$ and diffusion $\Diff$ fields---now by global P-spline regression
+(Section~\ref{sec:psplines}), or optionally by the historical
+Nadaraya--Watson kernel estimator, selected by a single configuration
+parameter---together with the empirical density $\rho(x)$ and the grid edges.
+Second, the effective field $g = -D^{-1} f$ is computed via robust SVD
+inversion. Third, the IgA stage reconstructs the scalar potential $U(x)$ and,
+in two dimensions, the stream function $\psi(x)$ via the decoupled Poisson
+system, from which the solenoidal residual, the non-conservative force
+$v = -D \cdot r$, the reconstructed effective field $g_{\mathrm{recon}}$, and
+the non-equilibrium metric $\eta$ are derived. The pipeline is fully
+observable: the P-spline diagnostics (fit RMSE, $R^2$, minimum eigenvalue and
+condition number of $\hat D$) and the local IgA diagnostics
+($\mathrm{rank}_D(x)$, $\mathrm{cond}_D(x)$) flag unreliable regions, while
+$\eta$ guides the physical interpretation without requiring any ground truth.
+
+% [PLACEHOLDER: Figura del diagrama de flujo del pipeline de dos etapas
+%  (análoga a la Fig.~3 del reporte original), actualizada para indicar el
+%  despacho NW / P-splines en la etapa de estimación.]
+
+%==============================================================================
+\section{Hyperparameters and calibration strategy}
+\label{sec:hyperparameters}
+%==============================================================================
+
+The kernel pipeline required calibrating the bandwidth $h$ (via the hybrid
+score described in the original report), plus the kernel shape, bin count,
+post-smoothing scale and density threshold. The P-spline estimator replaces
+this set with the following hyperparameters, defined in the
+\texttt{PSplineConfig} configuration object (defaults in parentheses):
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}llp{6.8cm}@{}}
+\toprule
+Parameter & Default & Role \\
+\midrule
+\texttt{n\_basis} & 8 & B-spline basis functions per axis; sets the spatial
+resolution of the estimator (total coefficients $K = n_{\text{basis}}^D$). \\
+\texttt{degree} & 3 & Degree $p$ of the B-spline basis ($C^{p-1}$ fields). \\
+\texttt{penalty\_order} & 2 & Order $m$ of the difference penalty; the
+large-$\lambda$ limit is a polynomial of degree $m-1$. \\
+\texttt{lambda\_drift} & $10^{-3}$ & Penalisation weight of the drift fit;
+the analogue of the kernel bandwidth for $\Drift$. \\
+\texttt{lambda\_diffusion} & $10^{-3}$ & Penalisation weight of the diffusion
+fit; the analogue of the bandwidth for $\Diff$. \\
+\texttt{domain\_quantile} & $0.005$ & Quantile level defining the estimation
+domain (outlier trimming). \\
+\texttt{domain\_padding} & $0.05$ & Relative padding of the estimation domain
+beyond the quantile range. \\
+\texttt{grid\_margin} & $0.30$ & Relative inset of the output grid; keeps the
+IgA density mask away from the boundary (prevents spurious modes). \\
+\texttt{min\_diffusion} & $10^{-12}$ & Floor on the diagonal of $\hat D$
+(SPD enforcement). \\
+\texttt{correlation\_clip} & $0.999$ & Cap on implied correlations of
+$\hat D$ (SPD enforcement). \\
+\bottomrule
+\end{tabular}
+\caption{Hyperparameters of the P-spline Kramers--Moyal estimator.}
+\label{tab:hyperparameters}
+\end{table}
+
+The parameters that genuinely require \emph{optimisation}---in the same sense
+that the bandwidth required it in the kernel pipeline---are the penalisation
+weights \texttt{lambda\_drift} and \texttt{lambda\_diffusion}, and secondarily
+\texttt{n\_basis}. The remaining parameters are structural: \texttt{degree}
+and \texttt{penalty\_order} fix standard smoothness classes; the domain and
+margin parameters are set by robustness considerations rather than by fit
+quality; the SPD parameters are numerical guards.
+
+We propose the following calibration strategy, analogous in spirit to the
+bandwidth scan of the kernel pipeline but cheaper, because each candidate fit
+reuses the same basis matrix:
+
+\begin{enumerate}
+\item \textbf{Candidate grid.} Scan $\lambda$ on a log-spaced grid spanning
+interpolation to near-parametric behaviour (e.g.\ $10^{-6}$ to $10^{2}$), at
+fixed \texttt{n\_basis}.
+\item \textbf{Score each candidate} on the reconstructed potential with the
+same ground-truth-free hybrid score used for the bandwidth: (a) correlation
+of $U$ with $-\log\rho_{\mathrm{emp}}$ over the density mask; (b) stability of
+$U$ between neighbouring $\lambda$ values; (c) plausibility of the range of
+$U$ relative to the range of $-\log\rho$.
+\item \textbf{Statistical cross-checks} from the estimator diagnostics: drift
+$R^2$ and RMSE per component, and the minimum eigenvalue and condition number
+of $\hat D$ on a probe grid. Candidates producing near-singular or negative
+diffusion spectra are rejected regardless of score.
+\item \textbf{Resolution check.} Repeat at two or three values of
+\texttt{n\_basis}; retain the smallest basis whose best-$\lambda$ score
+plateaus, to avoid the exponential cost $K = n_{\text{basis}}^D$ in high
+dimension.
+\end{enumerate}
+
+% [PLACEHOLDER: figura del escaneo de lambda (score híbrido vs lambda, con el
+%  óptimo marcado), análoga al panel de optimal_bw del pipeline NW. Pendiente
+%  de la implementación del scan en bw_optimization para P-splines.]
+
+%==============================================================================
+\section{Numerical experiments}
+\label{sec:experiments}
+%==============================================================================
+
+% [PLACEHOLDER: sección de resultados del método P-splines. Estructura prevista,
+%  idéntica a la del reporte original para permitir comparación directa:
+%
+%  7.1 Ornstein–Uhlenbeck (2D)      — sistema de equilibrio, potencial cuadrático
+%  7.2 Double-well potential (2D)   — equilibrio, dos pozos con acoplamiento
+%  7.3 Multi-stable potential (2D)  — equilibrio, cuatro pozos
+%  7.4 Ring attractor (2D)          — NO equilibrio, componente rotacional, eta >> 0.1
+%  7.5 Triple-well potential (3D)   — caso de mayor dimensión
+%
+%  Para cada sistema: figura de campos drift/diffusion estimados vs teóricos,
+%  figura del potencial reconstruido vs teórico, correlación de forma (Pearson)
+%  y RMSE normalizado, métrica eta, y diagnósticos P-splines (lambda usado,
+%  R2 del drift, eig/cond de D). En 7.4 además: fuerza no-conservativa v,
+%  stream function psi y visualización combinada U + v + streamlines.
+%
+%  Los resultados se generarán con src/pipelines/test_iga_from_models.py
+%  fijando estimation_method='p_splines' en la configuración de cada modelo.
+%  NOTA: no incluir cifras de resultados fuera de esta sección.]
+
+%==============================================================================
+\section{Open problems and future directions}
+%==============================================================================
+
+Several directions remain open and are the subject of ongoing work.
+
+\textbf{Automatic penalisation selection.} The scan-based calibration of
+Section~\ref{sec:hyperparameters} mirrors the bandwidth selection of the
+kernel pipeline. A more principled alternative is generalised cross-validation
+or REML estimation of $\lambda$ within the penalised regression itself, which
+would make the estimator fully self-calibrating.
+
+\textbf{3D rotational component.} The current implementation computes the
+stream function $\psi$ only in two dimensions. Extending the pipeline to three
+dimensions requires solving for a vector potential $A$ subject to the Coulomb
+gauge $\Div A = 0$ \cite{huang2016,wang2016}. For $D \ge 4$ the
+dimensionality-reduction paradigm offers a computationally viable alternative
+\cite{ddhodge2025}.
+
+\textbf{Curse of dimensionality in the estimator.} The tensor-product basis
+scales as $K = n_{\text{basis}}^D$ coefficients. Sparse-grid or
+low-rank-tensor variants of the P-spline fit would extend the estimator to
+$D \ge 4$ without the current \texttt{max\_tensor\_bases} guard aborting the
+fit.
+
+\textbf{State-dependent diffusion.} The SVD-based inversion handles
+anisotropic $D(x)$ cell by cell, but the variational formulation treats $D$ as
+given. Jointly estimating $U(x)$ and $D(x)$ within the same Galerkin framework
+would unify the reconstruction into a single self-consistent problem.
+
+%==============================================================================
+\begin{thebibliography}{99}
+
+\bibitem{risken1989}
+Risken, H. (1989). \emph{The Fokker-Planck Equation: Methods of Solution and
+Applications}. Springer.
+
+\bibitem{tabar2019}
+Tabar, M.~R.~R. (2019). \emph{Analysis and Data-Based Reconstruction of
+Complex Nonlinear Dynamical Systems}. Springer.
+
+\bibitem{gardiner2009}
+Gardiner, C.~W. (2009). \emph{Stochastic Methods: A Handbook for the Natural
+and Social Sciences}, 4th ed. Springer.
+
+\bibitem{silverman1986}
+Silverman, B.~W. (1986). \emph{Density Estimation for Statistics and Data
+Analysis}. Chapman \& Hall.
+
+\bibitem{wand1995}
+Wand, M.~P., Jones, M.~C. (1995). \emph{Kernel Smoothing}. Chapman \& Hall.
+
+\bibitem{epanechnikov1969}
+Epanechnikov, V.~A. (1969). Non-parametric estimation of a multivariate
+probability density. \emph{Theory of Probability and Its Applications}, 14(1),
+153--158.
+
+\bibitem{golub2013}
+Golub, G.~H., Van Loan, C.~F. (2013). \emph{Matrix Computations}, 4th ed.
+Johns Hopkins University Press.
+
+\bibitem{strang1986}
+Strang, G. (1986). \emph{Introduction to Applied Mathematics}.
+Wellesley-Cambridge Press.
+
+\bibitem{rydin2019}
+Rydin Gorj\~ao, L. et al. (2019). kramersmoyal: Kramers--Moyal coefficients
+for stochastic processes. \emph{Journal of Open Source Software}.
+
+\bibitem{piegl2012}
+Piegl, L., Tiller, W. (2012). \emph{The NURBS Book}, 2nd ed. Springer.
+
+\bibitem{cottrell2009}
+Cottrell, J.~A., Hughes, T.~J.~R., Bazilevs, Y. (2009). \emph{Isogeometric
+Analysis: Toward Integration of CAD and FEA}. Wiley.
+
+\bibitem{helmholtz1858}
+Helmholtz, H. von (1858). \"Uber Integrale der hydrodynamischen Gleichungen,
+welche den Wirbelbewegungen entsprechen. \emph{Journal f\"ur die reine und
+angewandte Mathematik}, 55, 25--55.
+
+\bibitem{auchmuty2016}
+Auchmuty, G. (2016). Bounds and regularity of solutions of planar div-curl
+problems. \emph{arXiv preprint arXiv:1610.06827}.
+
+\bibitem{huang2016}
+Huang, X. (2016). Differential complexes, Helmholtz decompositions, and
+decoupling of mixed methods. \emph{arXiv preprint arXiv:1611.03936}.
+
+\bibitem{wang2016}
+Wang, J., Ye, X. (2016). Discretization of div-curl systems by weak Galerkin
+finite element methods. \emph{Journal of Scientific Computing}, 68,
+1144--1161.
+
+\bibitem{hirani2003}
+Hirani, A.~N. (2003). \emph{Discrete Exterior Calculus}. PhD thesis,
+California Institute of Technology.
+
+\bibitem{desbrun2005}
+Desbrun, M. et al. (2005). Discrete exterior calculus for variational
+problems. \emph{arXiv preprint math/0508341}.
+
+\bibitem{ddhodge2025}
+ddHodge Framework Authors (2025). ddHodge: A framework for approximating the
+Hodge components on a low-dimensional manifold to study high-dimensional
+dynamics of cell states. \emph{bioRxiv}. doi:10.1101/2025.02.20.639398.
+
+\bibitem{eilers1996}
+Eilers, P.~H.~C., Marx, B.~D. (1996). Flexible smoothing with B-splines and
+penalties. \emph{Statistical Science}, 11(2), 89--121.
+
+\end{thebibliography}
+
+\end{document}
