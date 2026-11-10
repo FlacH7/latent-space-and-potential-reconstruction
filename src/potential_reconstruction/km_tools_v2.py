@@ -218,7 +218,7 @@ def _rebuild_theoretical(model_info, D):
                 return U
             else:
                 U = np.zeros(x.shape[0])
-                if D >= 2: r2 = x[:, 0]**2 + x[1]**2; U += -0.5 * lam * r2 + 0.25 * r2**2
+                if D >= 2: r2 = x[:, 0]**2 + x[:, 1]**2; U += -0.5 * lam * r2 + 0.25 * r2**2
                 for i in range(2, D): U += 0.5 * theta_rest_vec[i-2] * x[:, i]**2
                 return U
     elif name == 'single_well':
@@ -291,7 +291,7 @@ def _rebuild_theoretical(model_info, D):
                         if j < 3:
                             U += c*x[:, i]**2*x[:, j]**2
                 for i in range(2, D):
-                    U += k_rest*x[i]**2
+                    U += k_rest*x[:, i]**2
                 return U
     else:
         raise ValueError(f"Modelo {name} no reconocido para reconstrucción")
@@ -476,7 +476,7 @@ def _simulate_single_well(D, dt, T, burn_ratio, seed, params):
 
 def _simulate_asymmetric_double_well(D, dt, T, burn_ratio, seed, params):
     """
-    Potencial doble pozo asimétrico: U(x) = a*x^4 - b*x**3 + c*x**2 + d*x.
+    Potencial doble pozo asimétrico: U(x) = a*x^4 - b*x^3 + c*x^2 + d*x.
     Los pozos tienen profundidades diferentes (test de sensibilidad a asimetría).
     """
     a = params.get('a', 1.0)
@@ -599,7 +599,7 @@ def _simulate_triple_well_3d(D, dt, T, burn_ratio, seed, params):
                     if j < 3:
                         U += c*x[:, i]**2*x[:, j]**2
             for i in range(2, D):
-                U += k_rest*x[i]**2
+                U += k_rest*x[:, i]**2
             return U
     theoretical = {
         'drift_func': drift_func, 'diffusion_func': diffusion_func, 'potential_func': potential_func,
@@ -810,7 +810,7 @@ def _simulate_stochastic_oscillator(D, dt, T, burn_ratio, seed, params):
             return U
         else:
             U = np.zeros(x.shape[0])
-            if D >= 2: r2 = x[:, 0]**2 + x[1]**2; U += -0.5 * lam * r2 + 0.25 * r2**2
+            if D >= 2: r2 = x[:, 0]**2 + x[:, 1]**2; U += -0.5 * lam * r2 + 0.25 * r2**2
             for i in range(2, D): U += 0.5 * theta_rest_vec[i-2] * x[:, i]**2
             return U
     theoretical = {
@@ -2081,7 +2081,7 @@ def plot_potential_slice(U, edges, dims=(0, 1), fixed_coords=None,
     reconstructed_drift : ndarray (D, n1, ..., nD) or None
         Drift reconstruido f_recon = -D·g_recon. Si se provee, tiene
         prioridad sobre reconstructed_field y las streamlines siguen la
-        dirección FÍSICA de la dinámica (desciende U).
+        dirección FÍSICA de la dinámica (descienden U).
     show_streamlines : bool
         Si True y hay campo disponible, mostrar streamlines.
     stream_color : str
