@@ -161,29 +161,59 @@ teorico = None
 # ================================================================
 # 3. ESTIMAR COEFICIENTES KM
 # ================================================================
-if D==3 and model_name == 'triple_well_3d':
-    bandwidth = 0.3544
-else:
-    # bandwidth = bw_opt
-    bandwidth = 0.3
-    
-drift, diffusion, edges = extract_km_coefficients(
-    data,
-    bins=config['bins'],
-    p=2,
-    bw=bandwidth,
-    # bw = 0.25,
-    kernel='epanechnikov',
-    # kernel = 'gaussian',
-    dt=dt,
-    sigma_smooth = 0.5,
-    density_threshold = 0.005
-)
+# Método de estimación: 'nadaraya_watson' (kernel + bins, clásico) o
+# 'p_splines' (regresión penalizada global, sin discretización espacial).
+estimation_method = config.get('estimation_method', 'nadaraya_watson')
+pspline_cfg = config.get('pspline', None)
 
-print(f"\n[3] Coeficientes estimados:")
-print(f"    Drift shape: {drift.shape}")
-print(f"    Diffusion shape: {diffusion.shape}")
-print(f"    Bins: {[len(e) for e in edges]}")
+if estimation_method == 'p_splines':
+    # --- Estimación global con P-splines (sin bandwidth) ---
+    drift, diffusion, edges, est_info = extract_km_coefficients(
+        data,
+        bins=config['bins'],
+        dt=dt,
+        estimation_method='p_splines',
+        pspline_config=pspline_cfg,
+        return_estimation_info=True,
+    )
+    print(f"\n[3] Coeficientes estimados (P-splines):")
+    print(f"    Drift shape: {drift.shape}")
+    print(f"    Diffusion shape: {diffusion.shape}")
+    print(f"    Bins: {[len(e) for e in edges]}")
+    print(f"    n_basis={est_info['n_basis']}, degree={est_info['degree']}, "
+          f"penalty_order={est_info['penalty_order']}, K={est_info['n_coefficients']}")
+    print(f"    lambda_drift={est_info['lambda_drift']:.1e}, "
+          f"lambda_diffusion={est_info['lambda_diffusion']:.1e}, "
+          f"grid_margin={est_info['grid_margin']:.2f}")
+    print(f"    Drift RMSE por dim: {np.round(est_info['drift_rmse'], 5).tolist()}")
+    print(f"    Drift R2 por dim: {np.round(est_info['drift_r2'], 4).tolist()}")
+    print(f"    D estimada: min eig (mediana)={est_info['diffusion_min_eigenvalue_median']:.3e}, "
+          f"cond (mediana)={est_info['diffusion_condition_median']:.1f}")
+else:
+    # --- Estimación clásica Nadaraya-Watson (kernel + bins) ---
+    if D==3 and model_name == 'triple_well_3d':
+        bandwidth = 0.3544
+    else:
+        # bandwidth = bw_opt
+        bandwidth = 0.3
+
+    drift, diffusion, edges = extract_km_coefficients(
+        data,
+        bins=config['bins'],
+        p=2,
+        bw=bandwidth,
+        # bw = 0.25,
+        kernel='epanechnikov',
+        # kernel = 'gaussian',
+        dt=dt,
+        sigma_smooth = 0.5,
+        density_threshold = 0.005
+    )
+
+    print(f"\n[3] Coeficientes estimados (Nadaraya-Watson, bw={bandwidth}):")
+    print(f"    Drift shape: {drift.shape}")
+    print(f"    Diffusion shape: {diffusion.shape}")
+    print(f"    Bins: {[len(e) for e in edges]}")
 
 # ================================================================
 # 4. DENSIDAD EMPÍRICA (requerida por IgA)
